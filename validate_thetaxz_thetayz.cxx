@@ -15,9 +15,18 @@ void draw_muontype_text(TLatex *tl_muontype, int type_to_check) {
 
 }
 
-void reproduce_thetaxz_thetayz(int type_to_check = 1, float match_threshold = 2.0 /*degrees*/ )
+void validate_thetaxz_thetayz(int type_to_check = 1, float match_threshold = 2.0 /*degrees*/ )
 {
-
+  // if you want to create the muon tracks sorted in z with z2>z1,
+  // then you have to make some changes to the angle
+  bool sort_in_z = false;
+  // give me totally uncorrected angle, just raw atan2
+  // this will not match angles in ntuple, set to false if you want to match
+  bool uncorrected = false;
+  // modify the angles to match your own vision instead of this
+  // tpc-dependent angle
+  bool modify_angles = false;
+  if ( modify_angles ) sort_in_z = true;
   /**
      the purpose of this macro is to see if I understand the thetaxz
      and thetayz angles which are stored in the commissioning ntuples,
@@ -83,11 +92,14 @@ void reproduce_thetaxz_thetayz(int type_to_check = 1, float match_threshold = 2.
   TTreeReaderArray<float> muontrk_th_xz(reader,"muontrk_theta_xz");
   TTreeReaderArray<float> muontrk_th_yz(reader,"muontrk_theta_yz");
   TTreeReaderArray<int> muontrk_type(reader,"muontrk_type");
+  TTreeReaderArray<int> muontrk_tpc(reader,"muontrk_tpc");
 
   TH1F *h_ntuple_thetaxz = new TH1F("h_ntuple_thetaxz",";#theta_{XZ};Entries",60,-180,180);
   TH1F *h_ntuple_thetayz = new TH1F("h_ntuple_thetayz",";#theta_{YZ};Entries",60,-180,180);
   TH1F *h_own_thetaxz = new TH1F("h_own_thetaxz",";#theta_{XZ};Entries",60,-180,180);
   TH1F *h_own_thetayz = new TH1F("h_own_thetayz",";#theta_{YZ};Entries",60,-180,180);
+  TH1F *h_modified_thetaxz = new TH1F("h_modified_thetaxz",";#theta_{XZ};Entries",60,-180,180);
+  TH1F *h_modified_thetayz = new TH1F("h_modified_thetayz",";#theta_{YZ};Entries",60,-180,180);
   
   int good_match = 0;
   int bad_match = 0;
@@ -105,30 +117,60 @@ void reproduce_thetaxz_thetayz(int type_to_check = 1, float match_threshold = 2.
       TVector3 v2 {muontrk_x2[i],muontrk_y2[i],muontrk_z2[i]}; // second endpoint
       TVector3 vtemp;
 
-      if ( v2.X() < v1.X() ) {
+      if ( sort_in_z && (v2.Z() < v1.Z()) ) {
 	vtemp = v2;
-	//v2 = v1;
-	//v1 = vtemp;
+	v2 = v1;
+	v1 = vtemp;
       }
 
-      //v1.Print();
-      //v2.Print();
-      //std::cout << "---\n";
       /**
 	 now we calculate our own thetaxz and thetayz
       */
+
       double dx = v2.X() - v1.X();
       double dy = v2.Y() - v1.Y();
       double dz = v2.Z() - v1.Z();
-      // one liner
       double theta_xz = atan2(dx,dz)*TMath::RadToDeg();
       double theta_yz = atan2(dy,dz)*TMath::RadToDeg();
-      if ( theta_xz < 0 ) theta_xz = -theta_xz;
-      // ACos defined between [0,pi] always gives positive, get
-      // correct sign with original vector
-      //if ( muontrk_y2[i]-muontrk_y1[i] < 0.0 ) theta_yz = -theta_yz;
-      h_own_thetaxz->Fill(theta_xz);
+
+      
+      if ( sort_in_z && !modify_angles ) {
+	if ( muontrk_tpc[i] == 0 && theta_xz < 0 ) {
+	  theta_xz = 180+theta_xz;
+	}
+	if ( muontrk_tpc[i] == 1 ) {
+	  if ( theta_xz > 0 ) theta_xz = 180-theta_xz;
+	  if ( theta_xz < 0 ) theta_xz = -theta_xz;
+	}
+      }
+      double modified_thetaxz = muontrk_th_xz[i];
+      double modified_thetayz = muontrk_th_yz[i];
+      if ( sort_in_z && modify_angles ) {
+	if ( muontrk_th_xz[i] > 90 && muontrk_tpc[i] == 0 ) {
+	  modified_thetaxz = muontrk_th_xz[i] - 180.;
+	} else if ( muontrk_th_xz[i] > 90 && muontrk_tpc[i] == 1 ) {
+	  modified_thetaxz = 180. - muontrk_th_xz[i];
+	} else if ( muontrk_th_xz[i] < 90 && muontrk_tpc[i] == 1 ) {
+	  modified_thetaxz = -muontrk_th_xz[i];
+	}
+	if ( muontrk_th_yz[i] < -90 ) {
+	  modified_thetayz = muontrk_th_yz[i] + 180.;
+	}
+	if ( muontrk_th_yz[i] > 90 ) {
+	  modified_thetayz = muontrk_th_yz[i] - 180.;
+	}
+	h_modified_thetaxz->Fill(modified_thetaxz);
+	h_modified_thetayz->Fill(modified_thetayz);
+	std::cout << "regular and modified" << std::endl;
+	std::cout << muontrk_th_xz[i] << " " << modified_thetaxz << std::endl;
+      }
+      
+      if ( !sort_in_z && !uncorrected ) {
+	if ( muontrk_tpc[i] == 1 ) theta_xz = -theta_xz;
+      }
+      //if ( theta_xz < 0 ) theta_xz = -theta_xz; // effectively same as previous line
       h_own_thetayz->Fill(theta_yz);
+      h_own_thetaxz->Fill(theta_xz);
       // they should be matched at this point
       // BAD MATCHES
       if ( 
@@ -178,26 +220,41 @@ void reproduce_thetaxz_thetayz(int type_to_check = 1, float match_threshold = 2.
   
   
   double max = std::max(h_own_thetaxz->GetMaximum(),h_ntuple_thetaxz->GetMaximum());
+  TString filename_modifier;
   h_ntuple_thetaxz->SetMaximum(max*1.5);
   h_ntuple_thetaxz->Draw();
   h_own_thetaxz->Draw("SAME P");
+  if ( modify_angles ) {
+    h_modified_thetaxz->Draw("SAME HIST");
+    h_modified_thetaxz->SetLineColor(kRed);
+    h_modified_thetaxz->SetLineWidth(2);
+    myleg->AddEntry(h_modified_thetaxz,Form("Modified muontracks (%.0f)",h_modified_thetaxz->GetEntries()));
+    filename_modifier = "_modified";
+  }
   myleg->AddEntry(h_own_thetaxz, Form("Own implementation (%.0f)",h_own_thetaxz->GetEntries()));
   myleg->AddEntry(h_ntuple_thetaxz, Form("Commissioning ntuples (%.0f)",h_ntuple_thetaxz->GetEntries()));
   myleg->Draw("same");
   draw_muontype_text(tl_muontype,type_to_check);
-  c1->SaveAs(Form("img/match_validation/h_thetaxz_type%i.png",type_to_check));
-  c1->SaveAs(Form("img/match_validation/h_thetaxz_type%i.pdf",type_to_check));
+  c1->SaveAs(Form("img/match_validation/h_thetaxz_type%i%s.png",type_to_check,filename_modifier.Data()));
+  c1->SaveAs(Form("img/match_validation/h_thetaxz_type%i%s.pdf",type_to_check,filename_modifier.Data()));
 
   myleg->Clear();
   max = std::max(h_own_thetayz->GetMaximum(),h_ntuple_thetayz->GetMaximum());
   h_ntuple_thetayz->SetMaximum(max*1.5);
   h_ntuple_thetayz->Draw();
   h_own_thetayz->Draw("SAME P");
+  if ( modify_angles ) {
+    h_modified_thetayz->Draw("SAME HIST");
+    h_modified_thetayz->SetLineColor(kRed);
+    h_modified_thetayz->SetLineWidth(2);
+    myleg->AddEntry(h_modified_thetayz,Form("Modified muontracks (%.0f)",h_modified_thetayz->GetEntries()));
+    filename_modifier = "_modified";
+  }
   myleg->AddEntry(h_own_thetayz, Form("Own implementation (%.0f)",h_own_thetayz->GetEntries()));
   myleg->AddEntry(h_ntuple_thetayz, Form("Commissioning ntuples (%.0f)",h_ntuple_thetayz->GetEntries()));
   myleg->Draw("same");
   draw_muontype_text(tl_muontype,type_to_check);
-  c1->SaveAs(Form("img/match_validation/h_thetayz_type%i.png",type_to_check));
-  c1->SaveAs(Form("img/match_validation/h_thetayz_type%i.pdf",type_to_check));
+  c1->SaveAs(Form("img/match_validation/h_thetayz_type%i%s.png",type_to_check,filename_modifier.Data()));
+  c1->SaveAs(Form("img/match_validation/h_thetayz_type%i%s.pdf",type_to_check,filename_modifier.Data()));
   
 }
