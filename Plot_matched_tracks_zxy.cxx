@@ -110,6 +110,8 @@ void Plot_matched_tracks_zxy()
   gROOT->GetStyle("uboone_sty_colz");
   uboone_sty_colz->cd();
   uboone_sty_colz->SetPadTopMargin(0.1);
+  uboone_sty_colz->SetPadRightMargin(0.01);
+  uboone_sty_colz->SetPadLeftMargin(0.01);
 
   // open file
   TString filename {"CORRECTED_muon_hitdumper_NS.root"};
@@ -117,10 +119,6 @@ void Plot_matched_tracks_zxy()
 
   // read file
   TTreeReader reader("hitdumper/hitdumpertree_corr",f);
-  // evt run subrun
-  //TTreeReaderValue<int> run (reader,"run");
-  //TTreeReaderValue<int> subrun (reader,"subrun");
-  TTreeReaderValue<int> evt (reader,"event"); 
   // muon tracks
   TTreeReaderArray<double> muontrk_x1(reader,"muontrk_x1");
   TTreeReaderArray<double> muontrk_y1(reader,"muontrk_y1");
@@ -148,13 +146,20 @@ void Plot_matched_tracks_zxy()
   TTreeReaderArray<double> tpc_xz(reader,"tpc_thetaxz");
   TTreeReaderArray<double> tpc_yz(reader,"tpc_thetayz");
   // misc
+  // ev = entry in comm trees
   TTreeReaderValue<int> ev(reader,"event");
   TTreeReaderValue<int> n_matched(reader,"n_matched");
+  // evt = event number assigned in simulation
+  TTreeReaderValue<int> evt(reader,"evt");
+  TTreeReaderValue<int> run(reader,"run");
+  TTreeReaderValue<int> subrun(reader,"subrun");
 
   // canvases
   TCanvas *c1 = new TCanvas("c1","mycanvas",1000,1000);
   TCanvas *cxz = new TCanvas("cxz","mycanvas",1000,1000);
+  TCanvas *cxz_ang = new TCanvas("cxz_ang","mycanvas",1800,1000);
   TCanvas *cyz = new TCanvas("cyz","mycanvas",1000,1000);
+  TCanvas *cangles = new TCanvas("cangles","mycanvas",500,1000);
 
   // some manually placed labels
   TLatex coord_syst_x;
@@ -171,10 +176,10 @@ void Plot_matched_tracks_zxy()
   
   gPad->SetTheta(axis_theta);
   gPad->SetPhi(axis_phi);
-  TLatex latex_anglescrt;
-  latex_anglescrt.SetTextFont(132);
   TLatex latex_anglestpc;
   latex_anglestpc.SetTextFont(132);
+  TLatex latex_anglescrt;
+  latex_anglescrt.SetTextFont(132);
   // z x y
   double arr_cx =  0.7; // starting pos in x
   double arr_cy = -0.8; // starting pos in y
@@ -206,17 +211,33 @@ void Plot_matched_tracks_zxy()
   int events = -1;
   while ( reader.Next() ) {
     events++;
-    if ( events > 20  && *n_matched < 2) continue;
+    //if ( events > 26  && *n_matched < 2) continue;
+    //if ( *ev != 989 ) continue;
+    if ( events > 26  && *n_matched < 2) continue;
+    //if ( events > 2) continue;
     
     c1->Clear();
     cxz->Clear();
+    cxz_ang->Clear();
     cyz->Clear();
-    std::vector<TCanvas *> v_canvases {c1,cxz,cyz};
+    cangles->Clear();
+    cxz_ang->Clear();
+    cxz_ang->cd();
+    double separation = 0.6;
+    TPad *p1 = new TPad("p1","p1",0.0,0.0,separation,1.0);
+    TPad *p2 = new TPad("p2","p2",separation,0.0,1.0,1.0);
+    p2->SetRightMargin(0.0);
+    p1->Draw();
+    p2->Draw();
+    std::vector<TCanvas *> v_canvases {c1,cxz,cxz_ang,cyz,cangles};
     
 
     // draw background
     for ( auto c: v_canvases ) {
       c->cd();
+      if ( c == cangles ) {
+	continue;
+      }
       if ( c == c1 ) {
 	gPad->SetTheta(axis_theta);
 	gPad->SetPhi(axis_phi);
@@ -229,29 +250,37 @@ void Plot_matched_tracks_zxy()
 	gPad->SetTheta(90);
 	gPad->SetPhi(0);
 	Draw_coordinate_system(90,0);
+      } else if ( c == cxz_ang ) {
+	//cxz_ang->cd(0);
+	p1->cd();
+	gPad->SetTheta(90);
+	gPad->SetPhi(0);
+	Draw_coordinate_system(90,0);
       }
       Draw_invisible_box();
       Draw_sbnd_tpc();
       Draw_sbnd_crt();
     }
     // loop over muon tracks
+    int track_line_width = 5;
     for ( int i = 0; i < muontrk_x1.GetSize(); i++ ) {
+
       TPolyLine3D *pl_tpc = new TPolyLine3D(2);
       pl_tpc->SetLineStyle(9);
-      pl_tpc->SetLineWidth(3);
-      pl_tpc->SetLineColor(kRed);
+      pl_tpc->SetLineWidth(track_line_width);
+      pl_tpc->SetLineColor(kRed+i);
       pl_tpc->SetPoint(0,muontrk_z1[i],muontrk_x1[i],muontrk_y1[i]);
       pl_tpc->SetPoint(1,muontrk_z2[i],muontrk_x2[i],muontrk_y2[i]);
       std::cout << muontrk_z2[i]<< " " <<muontrk_x2[i]<< " " <<muontrk_y2[i] << std::endl;
       TPolyLine3D *pl_crt = new TPolyLine3D(2);
-      pl_crt->SetLineWidth(3);
+      pl_crt->SetLineWidth(track_line_width);
       pl_crt->SetLineColor(kBlue);
       pl_crt->SetPoint(0,ct_z1[i],ct_x1[i],ct_y1[i]);
       pl_crt->SetPoint(1,ct_z2[i],ct_x2[i],ct_y2[i]);
       // uncorrected muontrk
       TPolyLine3D *pl_tpc_uncorr = new TPolyLine3D(2);
-      pl_tpc_uncorr->SetLineWidth(2);
-      pl_tpc_uncorr->SetLineColor(kOrange);
+      pl_tpc_uncorr->SetLineWidth(track_line_width);
+      pl_tpc_uncorr->SetLineColor(kOrange+i);
       pl_tpc_uncorr->SetPoint(0,muontrk_uncorrected_z1[i],muontrk_uncorrected_x1[i],muontrk_uncorrected_y1[i]);
       pl_tpc_uncorr->SetPoint(1,muontrk_uncorrected_z2[i],muontrk_uncorrected_x2[i],muontrk_uncorrected_y2[i]);
 
@@ -264,34 +293,74 @@ void Plot_matched_tracks_zxy()
       for ( auto c: v_canvases ) {
 	c->cd();
 	TString filename_modifier;
-	latex_anglescrt.DrawLatex(0.1,0.9,
-				  Form("#theta_{XZ}^{CRT}: %.2f, #theta_{YZ}^{CRT}: %.2f",
-				       crt_xz[i],crt_yz[i]));
-	latex_anglestpc.DrawLatex(0.1,0.7,
-				  Form("#theta_{XZ}^{TPC}: %.2f, #theta_{YZ}^{TPC}: %.2f",
-				       tpc_xz[i],tpc_yz[i]));
+
 	if ( c == c1 ) {
+	  TLatex l_rse;
+	  l_rse.SetTextFont(132);
+	  l_rse.DrawLatexNDC(0.01,0.01,Form("Run: %i, Subrun: %i, Event: %i",*run,*subrun,*evt));
 	  filename_modifier = "";
+	  myleg->Draw("same");
 	} else if ( c == cyz ) {
 	  filename_modifier = "_yz";
+	  
 	} else if ( c == cxz ) {
 	  filename_modifier = "_xz";
 	}
-	// draw stuff
-	// auxiliary lines for crt, front and back
-	draw_aux_lines(ct_x1[i],ct_y1[i],ct_z1[i]);
-	draw_aux_lines(ct_x2[i],ct_y2[i],ct_z2[i]);
-	// auxiliary lines for tpc, front and back
-	draw_aux_lines(muontrk_x1[i],muontrk_y1[i],muontrk_z1[i],"tpc");
-	draw_aux_lines(muontrk_x2[i],muontrk_y2[i],muontrk_z2[i],"tpc");
-	// legend
-	myleg->Draw("same");
-	// polylines (tracks) for crt, tpc uncorrected and tpc
-	pl_crt->Draw("same");
-	pl_tpc_uncorr->Draw("same");
-	pl_tpc->Draw("same");
+	// need to draw previous angles until exhausted
+	int j = 0;
+	if ( c == cangles || c == cxz_ang ) {
+	  filename_modifier = "_angles";
+	  if ( c == cxz_ang ) {
+	    filename_modifier = "_xzang";
+	    myleg->Draw("same");
+	    p2->cd();
+	  }
+	  while ( j <= i ) {
+	    latex_anglescrt.DrawLatex(0.1,0.90-j*0.3,
+				      Form("#scale[1.8]{#theta_{XZ}^{CRT} %i: %.2f, #theta_{YZ}^{CRT}: %.2f}",
+					   j+1,crt_xz[j],crt_yz[j]));
+	    latex_anglestpc.DrawLatex(0.1,0.80-j*0.3,
+				      Form("#scale[1.8]{#theta_{XZ}^{TPC} %i: %.2f, #theta_{YZ}^{TPC}: %.2f}",
+					   j+1,tpc_xz[j],tpc_yz[j]));
+	    j++;
+	  }
+	  if ( c == cxz_ang ) p1->cd();
+	}
+	if ( c != cangles ) {
+	  // draw stuff
+	  // auxiliary lines for crt, front and back
+	  draw_aux_lines(ct_x1[i],ct_y1[i],ct_z1[i]);
+	  draw_aux_lines(ct_x2[i],ct_y2[i],ct_z2[i]);
+	  // auxiliary lines for tpc, front and back
+	  draw_aux_lines(muontrk_x1[i],muontrk_y1[i],muontrk_z1[i],"tpc");
+	  draw_aux_lines(muontrk_x2[i],muontrk_y2[i],muontrk_z2[i],"tpc");
+	  // legend
+	  // polylines (tracks) for crt, tpc uncorrected and tpc
+	  bool redraw_prev_tpc = false;
+	  if ( i > 0 ) {
+	    // if more than one track per event, check that CRT track is different
+	    // if it's the same, have to redraw the previous muon track so it doesn't get blocked
+	    if ( ct_x1[i] == ct_x1[0] && ct_y1[i] == ct_y1[0] && ct_z1[i] == ct_z1[0] &&
+		 ct_x2[i] == ct_x2[0] && ct_y2[i] == ct_y2[0] && ct_z2[i] == ct_z2[0] ) {
+	      redraw_prev_tpc = true;
+	    }
+	  }
+	  pl_crt->Draw("same");
+	  if ( redraw_prev_tpc) {
+	    TPolyLine3D *pl_tpc_prev = new TPolyLine3D(2);
+	    pl_tpc_prev->SetLineStyle(9);
+	    pl_tpc_prev->SetLineWidth(track_line_width);
+	    pl_tpc_prev->SetLineColor(kRed+i-1);
+	    pl_tpc_prev->SetPoint(0,muontrk_z1[i-1],muontrk_x1[i-1],muontrk_y1[i-1]);
+	    pl_tpc_prev->SetPoint(1,muontrk_z2[i-1],muontrk_x2[i-1],muontrk_y2[i-1]);
+	    pl_tpc_prev->Draw("same");
+	  }
+	  pl_tpc_uncorr->Draw("same");
+	  pl_tpc->Draw("same");
+	}
 
 	// save in the apropriate canvas (viewing angle)
+	std::cout << "saving " << filename_modifier << std::endl;
 	c->SaveAs(Form("img/matched/poly_ev%i%s_match%i.pdf",*ev,filename_modifier.Data(),i));
 	c->SaveAs(Form("img/matched/poly_ev%i%s_match%i.png",*ev,filename_modifier.Data(),i));
 

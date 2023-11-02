@@ -78,9 +78,17 @@ void remake_ct()
   std::vector<double> crt_thetayz;
   std::vector<double> tpc_thetaxz;
   std::vector<double> tpc_thetayz;
+  std::vector<double> v_mhit_charge;
+  std::vector<int> v_mhit_wire;
+  int out_run;
+  int out_subrun;
+  int out_evt;
   // is the crt track restricted to just tpc 0 or tpc 1? or does it
   // cross from -x to x or x to -x?
   std::vector<int> v_tpc_tpc;
+  outtree->Branch("run",&out_run);
+  outtree->Branch("subrun",&out_subrun);
+  outtree->Branch("evt",&out_evt);
   outtree->Branch("ct_x1",&v_crt_x1);
   outtree->Branch("ct_y1",&v_crt_y1);
   outtree->Branch("ct_z1",&v_crt_z1);
@@ -104,6 +112,8 @@ void remake_ct()
   outtree->Branch("tpc_thetaxz",&tpc_thetaxz);
   outtree->Branch("tpc_thetayz",&tpc_thetayz);
   outtree->Branch("muontrk_tpc",&v_tpc_tpc);
+  outtree->Branch("mhit_charge",&v_mhit_charge);
+  outtree->Branch("mhit_wire",&v_mhit_wire);
   
   // input file
   TString filename {"muon_hitdumper_NS.root"};
@@ -140,6 +150,37 @@ void remake_ct()
   TTreeReaderArray<int> muontrk_tpc(reader,"muontrk_tpc");
   TTreeReaderArray<float> muontrk_th_xz(reader,"muontrk_theta_xz");
   TTreeReaderArray<float> muontrk_th_yz(reader,"muontrk_theta_yz");
+
+  // muon hits
+  /**
+     these are the hits from which the muontracks were originally
+     calculated, it's what we use in the python EVD to make the
+     (wire,tick) event displays. they are very long vectors (average
+     of 3k hits per muon track) and have an entry called mhit_trk that
+     should match the index of the muon track we are matching. We also
+     need to match to save only from the collection plane using the
+     variable mhit_plane. 
+
+     We will definitely save the mhit_charge for such hit. Other
+     variables we might save are mhit_wire and mhit_peakT.
+
+     mhit_peakT should be worthless as we do time matching anyway, but
+     i'm not 100% sure.
+
+     mhit_wire can be scaled easily to match the z coordinate.  We
+     could use to get the other coordinates (x and y). Bear in mind
+     that track hits are sometimes saved out of order (e.g. a track
+     that crosses wires 400 to 1300 could store first the hits from
+     1000 to 1300 and then go backwards from 1000 to 400). The
+     mhit_wire variable becomes absolutely necessary if we want to
+     make our landau+gauss histograms from tracks that cross different
+     x-bins. If we just use angles which cross a single x-bin then we
+     can ignore the position information altogether.
+  */
+  TTreeReaderArray<int> mhit_trk(reader,"mhit_trk");
+  TTreeReaderArray<int> mhit_plane(reader,"mhit_plane");
+  TTreeReaderArray<int> mhit_wire(reader,"mhit_wire");
+  TTreeReaderArray<double> mhit_charge(reader,"mhit_charge");
   
 
   TH2F *h_crt_typeall = new TH2F("h_crt_typeall",
@@ -190,6 +231,9 @@ void remake_ct()
 
   std::cout << "Reading file" << std::endl;
   while ( reader.Next() ) {
+    out_run = *run;
+    out_subrun = *subrun;
+    out_evt = *evt;
     n_eve_matched2 = 0;
     v_crt_x1.clear();
     v_crt_y1.clear();
@@ -214,6 +258,8 @@ void remake_ct()
     tpc_thetaxz.clear();
     tpc_thetayz.clear();
     v_tpc_tpc.clear();
+    v_mhit_charge.clear();
+    v_mhit_wire.clear();
     
     events++;
     //if ( events > 409 ) break;
@@ -448,6 +494,18 @@ void remake_ct()
 	  tpc_thetaxz.push_back(v_muontrks_theta_xz_yz[m].first);
 	  tpc_thetayz.push_back(v_muontrks_theta_xz_yz[m].second);
 	  v_tpc_tpc.push_back(v_muontrks_tpc[m]);
+	  // sadly need to loop over the mhits now
+	  for ( int mh = 0; mh < mhit_trk.GetSize(); mh++ ) {
+	    if ( mhit_trk[mh] != m ) { // match current hit
+	      continue;
+	    }
+	    if ( mhit_plane[mh] != 2 ) { // only save collection plane
+	      continue;
+	    }
+	    v_mhit_charge.push_back(mhit_charge[mh]);
+	    v_mhit_wire.push_back(mhit_wire[mh]);
+	    
+	  }
 	}
       }
       
