@@ -44,15 +44,19 @@ std::pair<TVector3,TVector3> x_correct(std::pair<TVector3,TVector3> crt_trk,
 }
 
 
-void remake_ct()
+void remake_ct(TString modifier = "")
 {
   gROOT->SetStyle("uboone_sty");
   // modify the angles of the muontracks and make angle range -90 to
   // 90, with z2>z1
   bool modify_angles = true;
+  bool remake_ct = false; // remake crt tracks from crt hits
 
   // output file for corrected muon tracks
-  TFile *of = new TFile("CORRECTED_muon_hitdumper_NS.root","recreate");
+  if ( modifier != "" ) {
+    modifier = "_"+modifier;
+  }
+  TFile *of = new TFile(Form("trees/muon_hitdumper_NS%s_corrected.root",modifier.Data()),"recreate");
   of->mkdir("hitdumper");
   of->cd("hitdumper");
   TTree *outtree = new TTree("hitdumpertree_corr","Corrected TPC x-coordinate and matched to CRT");
@@ -116,7 +120,7 @@ void remake_ct()
   outtree->Branch("mhit_wire",&v_mhit_wire);
   
   // input file
-  TString filename {"muon_hitdumper_NS.root"};
+  TString filename {Form("trees/muon_hitdumper_NS%s.root",modifier.Data())};
   TFile *f = new TFile(filename);
   TTreeReader reader("hitdumper/hitdumpertree",f);
 
@@ -133,11 +137,15 @@ void remake_ct()
   TTreeReaderArray<int> chit_plane(reader,"chit_plane");
 
   // crt tracks
-  /*
+
+  TTreeReaderArray<double> ct_x1(reader,"ct_x1");
+  TTreeReaderArray<double> ct_y1(reader,"ct_y1");
   TTreeReaderArray<double> ct_z1(reader,"ct_z1");
+  TTreeReaderArray<double> ct_x2(reader,"ct_x2");
+  TTreeReaderArray<double> ct_y2(reader,"ct_y2");
   TTreeReaderArray<double> ct_z2(reader,"ct_z2");
   TTreeReaderArray<double> ct_t(reader,"ct_time");
-  */
+
   
   // muon tracks
   TTreeReaderArray<float> muontrk_x1(reader,"muontrk_x1");
@@ -222,11 +230,10 @@ void remake_ct()
   int n_total_muontrks = 0;
   int n_total_crttrks  = 0;
   int n_total_matched  = 0;
-  int n_total_matched2  = 0;
-  int n_eve_matched2  = 0;
+  int n_eve_matched  = 0;
 
   outtree->Branch("event",&events);
-  outtree->Branch("n_matched",&n_eve_matched2);
+  outtree->Branch("n_matched",&n_eve_matched);
 
 
   std::cout << "Reading file" << std::endl;
@@ -234,7 +241,7 @@ void remake_ct()
     out_run = *run;
     out_subrun = *subrun;
     out_evt = *evt;
-    n_eve_matched2 = 0;
+    n_eve_matched = 0;
     v_crt_x1.clear();
     v_crt_y1.clear();
     v_crt_z1.clear();
@@ -311,55 +318,84 @@ void remake_ct()
     std::vector<int> v_crttrks_type;
 
     int n_ct = 0;
-    for ( int i = 0; i < chit_z.GetSize(); i++ ) {
-      // will match this "i" chit to a "j" one
-      bool count_crttrks = true; // will not count same i for different js
-      /**
-	 plane 2 is downstream. hits seem to be stored in same order
-	 in commissioning ntuples: 0-4-2-1-6-5-3. Loop over hits until
-	 you find upstream plane
-      */
-      for ( int j = i+1; j < chit_z.GetSize(); j++ ) {
-	if ( chit_plane[j] == chit_plane[i] ) continue;
-	double delta_t = std::abs(chit_t[j] - chit_t[i]);
-	double avg_t = (chit_t[j]+chit_t[i])/2.0;
-
-	// ctime is in us. we demand <100 ns coincidence
-	if ( delta_t > 0.1 || delta_t < 0.00) { 
+    if ( !remake_ct ) {
+      // use crt tracks stored in the file
+      for ( int i = 0 ; i < ct_x1.GetSize(); i++ ) {
+	TVector3 ct1 {ct_x1[i],ct_y1[i],ct_z1[i]};
+	TVector3 ct2 {ct_x2[i],ct_y2[i],ct_z2[i]};
+	// make second one always downstream
+	if ( ct_z2[i] < ct_z1[i] ) {
+	  TVector3 cttemp;
+	  cttemp = ct2;
+	  ct2 = ct1;
+	  ct1 = cttemp;
+	}
+	// upstream hit
+	if ( ct1.Z() < -179.06 || ct1.Z() > -179.04 ) {
 	  continue;
 	}
-	auto v1 = TVector3{chit_x[i],chit_y[i],chit_z[i]};
-	auto v2 = TVector3{chit_x[j],chit_y[j],chit_z[j]};
-	TVector3 v_ud = (
-			 TVector3{chit_x[i],chit_y[i],chit_z[i]}
-			 - TVector3{chit_x[j],chit_y[j],chit_z[j]}
-			 );
-	h_crt_typeall->Fill(v_ud.Mag(), delta_t*1000.);
-	// TYPE 0: Anode-cathode crosser
-	// ...
-	// TYPE 4: UP DOWNSTREAM (only this one implemented)
-	if ( ( chit_plane[i] == 2 && chit_plane[j] == 1 )
-	     || ( chit_plane[i] == 1 && chit_plane[j] == 2 )
-	     ) {
-	  n_ct++;
-	  h_crt_type4->Fill(v_ud.Mag(), delta_t*1000.);
-	  // make it so always second point is further downstream
-	  if ( v2.Z() < v1.Z() ) {
-	    TVector3 vtemp;
-	    vtemp = v2;
-	    v2 = v1;
-	    v1 = vtemp;
-	  }
-	  v_crttrks.push_back(std::make_pair(v1,v2));
-	  v_crttrks_t.push_back(avg_t);
-	  v_crttrks_type.push_back(4); // because hitplanes 2 and 1
-	  if ( count_crttrks == true ) {
-	    n_total_crttrks++;
-	    count_crttrks = false;
-	  }
+	// downstream hit
+	if ( ct2.Z() < 770.94 || ct2.Z() > 770.96 ) {
+	  continue;
 	}
-      } // end of j looping
-    } // end of i crt hits loop
+	v_crttrks.push_back(std::make_pair(ct1,ct2));
+	v_crttrks_t.push_back(ct_t[i]);
+	v_crttrks_type.push_back(4);
+	n_ct++;
+	n_total_crttrks++;
+      }
+    } else { // (remake_ct == true)
+      // remake crt tracks
+      for ( int i = 0; i < chit_z.GetSize(); i++ ) {
+	// will match this "i" chit to a "j" one
+	bool count_crttrks = true; // will not count same i for different js
+	/**
+	   plane 2 is downstream. hits seem to be stored in same order
+	   in commissioning ntuples: 0-4-2-1-6-5-3. Loop over hits until
+	   you find upstream plane
+	*/
+	for ( int j = i+1; j < chit_z.GetSize(); j++ ) {
+	  if ( chit_plane[j] == chit_plane[i] ) continue;
+	  double delta_t = std::abs(chit_t[j] - chit_t[i]);
+	  double avg_t = (chit_t[j]+chit_t[i])/2.0;
+	  
+	  // ctime is in us. we demand <100 ns coincidence
+	  if ( delta_t > 0.1 || delta_t < 0.00) { 
+	    continue;
+	  }
+	  auto v1 = TVector3{chit_x[i],chit_y[i],chit_z[i]};
+	  auto v2 = TVector3{chit_x[j],chit_y[j],chit_z[j]};
+	  TVector3 v_ud = (
+			   TVector3{chit_x[i],chit_y[i],chit_z[i]}
+			   - TVector3{chit_x[j],chit_y[j],chit_z[j]}
+			   );
+	  h_crt_typeall->Fill(v_ud.Mag(), delta_t*1000.);
+	  // TYPE 0: Anode-cathode crosser
+	  // ...
+	  // TYPE 4: UP DOWNSTREAM (only this one implemented)
+	  if ( ( chit_plane[i] == 2 && chit_plane[j] == 1 )
+	       || ( chit_plane[i] == 1 && chit_plane[j] == 2 )
+	       ) {
+	    n_ct++;
+	    h_crt_type4->Fill(v_ud.Mag(), delta_t*1000.);
+	    // make it so always second point is further downstream
+	    if ( v2.Z() < v1.Z() ) {
+	      TVector3 vtemp;
+	      vtemp = v2;
+	      v2 = v1;
+	      v1 = vtemp;
+	    }
+	    v_crttrks.push_back(std::make_pair(v1,v2));
+	    v_crttrks_t.push_back(avg_t);
+	    v_crttrks_type.push_back(4); // because hitplanes 2 and 1
+	    if ( count_crttrks == true ) {
+	      n_total_crttrks++;
+	      count_crttrks = false;
+	    }
+	  }
+	} // end of j looping
+      } // end of i crt hits loop
+    }
     h_nct->Fill(n_ct);
 
     // muontrk / crttrk matching
@@ -459,8 +495,8 @@ void remake_ct()
 	int c = best_match_i2;
 	double vdiff = get_vdiff(v_crttrks[c],v_muontrks[m]);
 	if ( vdiff < 2.0 ) { // cm
-	  n_total_matched2++;
-	  n_eve_matched2++;
+	  n_total_matched++;
+	  n_eve_matched++;
 	  
 	  // do not comment this line
 	  h_match2->Fill(std::abs(v_muontrks_theta_xz_yz[m].first  - best_crt_thetaxz),
@@ -511,7 +547,7 @@ void remake_ct()
       
     } // end loop over muontrks
     if ( v_crt_x1.size() > 0 ) {
-      h_n_matched->Fill(n_eve_matched2);
+      h_n_matched->Fill(n_eve_matched);
       outtree->Fill();
     }
 
@@ -520,17 +556,22 @@ void remake_ct()
 
 
   std::cout << Form("Looped over %i events", events) << std::endl;
-  std::cout << Form("Total:\nMuontrk: %i\nCRTtrk : %i\nMatched: %i\nMatched2: %i\n",
+  std::cout << Form("Total:\nMuontrk: %i\nCRTtrk : %i\nMatched: %i\n",
 		    n_total_muontrks,
 		    n_total_crttrks,
-		    n_total_matched,
-		    n_total_matched2);
-
+		    n_total_matched);
+  // remove leading '_' from filename modifier
+  if ( modifier[0] == '_' ) {
+    modifier.Remove(0,1); // remove 1 character, starting from char 0
+  }
+  // mkdir ( name, recursive)
+  gSystem->mkdir(Form("img/ct_remake/%s",modifier.Data()),true);
+  
   // 1d histos
   auto *c1 = new TCanvas();
   h_nct->Draw();
-  c1->SaveAs("img/ct_remake/ud_nct.png");
-  c1->SaveAs("img/ct_remake/ud_nct.pdf");
+  c1->SaveAs(Form("img/ct_remake/%s/ud_nct.png",modifier.Data()));
+  c1->SaveAs(Form("img/ct_remake/%s/ud_nct.pdf",modifier.Data()));
   delete c1;
   
   gROOT->GetStyle("uboone_sty_colz");
@@ -540,33 +581,33 @@ void remake_ct()
   // 2d histos
   gStyle->SetOptStat(1);
   h_crt_type4->Draw("colz");
-  c2->SaveAs("img/ct_remake/h_crt_type4.png");
-  c2->SaveAs("img/ct_remake/h_crt_type4.pdf");
+  c2->SaveAs(Form("img/ct_remake/%s/h_crt_type4.png",modifier.Data()));
+  c2->SaveAs(Form("img/ct_remake/%s/h_crt_type4.pdf",modifier.Data()));
   h_crt_typeall->Draw("colz");
-  c2->SaveAs("img/ct_remake/h_crt_typeall.png");
-  c2->SaveAs("img/ct_remake/h_crt_typeall.pdf");
+  c2->SaveAs(Form("img/ct_remake/%s/h_crt_typeall.png",modifier.Data()));
+  c2->SaveAs(Form("img/ct_remake/%s/h_crt_typeall.pdf",modifier.Data()));
   h_match2->Draw("colz");
-  c2->SaveAs("img/ct_remake/ud_match2.pdf");
-  c2->SaveAs("img/ct_remake/ud_match2.png");
+  c2->SaveAs(Form("img/ct_remake/%s/ud_match2.pdf",modifier.Data()));
+  c2->SaveAs(Form("img/ct_remake/%s/ud_match2.png",modifier.Data()));
 
   // angle validation histos
   h_tpc_thetaxz->Draw();
-  c2->SaveAs("img/ct_remake/tpc_thetaxz.pdf");
-  c2->SaveAs("img/ct_remake/tpc_thetaxz.png");
+  c2->SaveAs(Form("img/ct_remake/%s/tpc_thetaxz.pdf",modifier.Data()));
+  c2->SaveAs(Form("img/ct_remake/%s/tpc_thetaxz.png",modifier.Data()));
   h_tpc_thetayz->Draw();
-  c2->SaveAs("img/ct_remake/tpc_thetayz.pdf");
-  c2->SaveAs("img/ct_remake/tpc_thetayz.png");
+  c2->SaveAs(Form("img/ct_remake/%s/tpc_thetayz.pdf",modifier.Data()));
+  c2->SaveAs(Form("img/ct_remake/%s/tpc_thetayz.png",modifier.Data()));
   
   h_crt_thetaxz->Draw();
-  c2->SaveAs("img/ct_remake/crt_thetaxz.pdf");
-  c2->SaveAs("img/ct_remake/crt_thetaxz.png");
+  c2->SaveAs(Form("img/ct_remake/%s/crt_thetaxz.pdf",modifier.Data()));
+  c2->SaveAs(Form("img/ct_remake/%s/crt_thetaxz.png",modifier.Data()));
   h_crt_thetayz->Draw();
-  c2->SaveAs("img/ct_remake/crt_thetayz.pdf");
-  c2->SaveAs("img/ct_remake/crt_thetayz.png");
+  c2->SaveAs(Form("img/ct_remake/%s/crt_thetayz.pdf",modifier.Data()));
+  c2->SaveAs(Form("img/ct_remake/%s/crt_thetayz.png",modifier.Data()));
   // number of matches histo
   c2->SetLogy();
   h_n_matched->Draw();
-  c2->SaveAs("img/ct_remake/n_matches.pdf");
-  c2->SaveAs("img/ct_remake/n_matches.png");
+  c2->SaveAs(Form("img/ct_remake/%s/n_matches.pdf",modifier.Data()));
+  c2->SaveAs(Form("img/ct_remake/%s/n_matches.png",modifier.Data()));
   
 }
