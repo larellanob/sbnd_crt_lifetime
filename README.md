@@ -16,10 +16,11 @@ order to make the electron lifetime measurement:
    - matches CRT tracks to TPC tracks using angle matching
    - corrects time (x-position) of TPC tracks, maintaining their
      orientation
-   - saves "CORRECTED_" tree
+   - saves matched tracks comm. tree
+     (original_filename+"_corrected".root)
 
 2. `Calculate_elifetime`:
-   - Uses "CORRECTED_" tree to select suitable TPC crossing tracks
+   - Uses matched tracks tree to select suitable TPC crossing tracks
    - Separates TPC tracks in bins in the x direction
    - For each x-bin makes histogram of dQ/dx per hit
    - Performs fits to the dQ/dx distributions

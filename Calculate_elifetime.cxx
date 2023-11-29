@@ -52,7 +52,7 @@ double langaufun(double *x, double *par) {
       return (par[2] * step * sum * invsq2pi / par[3]);
 }
 
-void draw_x_bins(int index, std::vector<std::pair<TVector3,TVector3>> tracks, TH1F* binning)
+void draw_x_bins(int index, std::vector<std::pair<TVector3,TVector3>> tracks, TH1F* binning, TString modifier = "")
 {
   // histo. bins start from 1, vector index starts from 0
   int bin = index+1;
@@ -96,16 +96,20 @@ void draw_x_bins(int index, std::vector<std::pair<TVector3,TVector3>> tracks, TH
   }
 
   // save canvas to file
-  ctemp.SaveAs(Form("img/elifetime/tracks_per_xbin/tracks_bin%i.png",bin));
-  ctemp.SaveAs(Form("img/elifetime/tracks_per_xbin/tracks_bin%i.pdf",bin));
+  gSystem->mkdir(Form("img/elifetime/%s/tracks_per_xbin",modifier.Data()),true);
+  ctemp.SaveAs(Form("img/elifetime/%s/tracks_per_xbin/tracks_bin%i.png",modifier.Data(),bin));
+  ctemp.SaveAs(Form("img/elifetime/%s/tracks_per_xbin/tracks_bin%i.pdf",modifier.Data(),bin));
 }
   
 
-void Calculate_elifetime_langaufun()
+void Calculate_elifetime(TString modifier = "")
 {
   gROOT->SetStyle("uboone_sty");
   // open file
-  TString filename {"CORRECTED_muon_hitdumper_NS.root"};
+  if ( modifier != "" ) {
+    modifier = "_"+modifier;
+  }
+  TString filename {Form("trees/muon_hitdumper_NS%s_corrected.root",modifier.Data())};
   TFile *f = new TFile(filename);
 
   TTreeReader reader("hitdumper/hitdumpertree_corr",f);
@@ -230,18 +234,28 @@ void Calculate_elifetime_langaufun()
     } // end looping over event muon tracks
     
   } // end looping over events
-  // loop over bins and draw tracks
-  for ( int i = 0; i < nbins; i++ ) {
-    draw_x_bins(i,v_binned_muontrks[i],h_binning1);
-  }
 
   // I have the histograms. let's draw, fit, and so on
 
-  
+  // prepare image output directory
+  // remove leading '_' from filename modifier
+  if ( modifier[0] == '_' ) {
+    modifier.Remove(0,1); // remove 1 character, starting from char 0
+  }
+  // mkdir ( name, recursive)
+  if ( modifier == "" ) {
+    modifier = "default";
+  }
+  gSystem->mkdir(Form("img/elifetime/%s/charge/raw",modifier.Data()),true);
+
+  // loop over bins and draw tracks
+  for ( int i = 0; i < nbins; i++ ) {
+    draw_x_bins(i,v_binned_muontrks[i],h_binning1,modifier);
+  }
   TCanvas *c1 = new TCanvas();
   h_binning1->Draw();
-  c1->SaveAs(Form("img/elifetime/binning%i.pdf",binning));
-  c1->SaveAs(Form("img/elifetime/binning%i.png",binning));
+  c1->SaveAs(Form("img/elifetime/%s/binning%i.pdf",modifier.Data(),binning));
+  c1->SaveAs(Form("img/elifetime/%s/binning%i.png",modifier.Data(),binning));
 
   TLatex * l_xbin = new TLatex();
   TLatex * l_ntracks = new TLatex();
@@ -275,13 +289,24 @@ void Calculate_elifetime_langaufun()
     // tf1convolution ("f1", "f2", xmin, xmax, bool useFFT)
 
 
-    double center_ini = 1500;
+    // look for the peak and grab the x position of it
+    double conv_center = v_dQdx[i]->GetBinCenter(v_dQdx[i]->GetMaximumBin());
+    double gaus_center = conv_center*2.0;
+    double conv_gaus_intersection = conv_center +0.75*(gaus_center-conv_center);
 
-    double low_conv = 600.0;
+
+    double low_gaus = conv_gaus_intersection;
+    double high_gaus = gaus_center + (gaus_center-conv_gaus_intersection);
+    double high_conv = conv_gaus_intersection;
+    double low_conv = std::max(0.0,conv_center-0.5*0.75*(gaus_center-conv_center));
+    
+    /*
+    double low_conv = 200.0;
     double high_conv = 2000.0;
 
     double low_gaus = 2250.0;
     double high_gaus= 3500.0;
+    */
     
     TF1 * g = new TF1("g","gaus",low_gaus,high_gaus);
 
@@ -289,7 +314,6 @@ void Calculate_elifetime_langaufun()
     v_dQdx[i]->SetMaximum(v_dQdx[i]->GetMaximum()*1.2);
     v_dQdx[i]->Draw();
 
-    center_ini = 1300;
 
     /** 
 	We want the integral of the number of hits, to get a good
@@ -303,10 +327,12 @@ void Calculate_elifetime_langaufun()
     double scale = integral_bins/260.; // 260 -> trial and error
 
     // fit for the delta ray gaussian
-    double dQdx_pars2[3] = { 100.0,center_ini*2,50.0};
+    double dQdx_pars2[3] = { 100.0,gaus_center,50.0};
     // fit using langaufun
     TF1 * f_langaufun = new TF1("f_langaufun",langaufun,low_conv,high_conv,4);
-    double p_langaufun[4] = { 80.0, 1350., scale*15000, 180.};
+    // parameters before trying to grab them blindly (28/11/23)
+    //double p_langaufun[4] = { 80.0, 1350., scale*15000, 180.};
+    double p_langaufun[4] = { 80.0, conv_center, scale*15000, 180.};
     f_langaufun->SetParameters(p_langaufun);
     v_dQdx[i]->Fit("f_langaufun","L","",low_conv,high_conv);
     
@@ -368,12 +394,12 @@ void Calculate_elifetime_langaufun()
       }
     }
     
-    //double lpg_mpv = f_langaufun->GetParameter(1);
-    double lpg_mpv = minx;
+    double lpg_mpv = f_langaufun->GetParameter(1);
+    //double lpg_mpv = minx;
     std::cout << "MPV1: " << lpg_mpv << std::endl;
     
-    c1->SaveAs(Form("img/elifetime/charge/dQdx_binning%i_bin%i.pdf",binning,i+1));
-    c1->SaveAs(Form("img/elifetime/charge/dQdx_binning%i_bin%i.png",binning,i+1));
+    c1->SaveAs(Form("img/elifetime/%s/charge/dQdx_binning%i_bin%i.pdf",modifier.Data(),binning,i+1));
+    c1->SaveAs(Form("img/elifetime/%s/charge/dQdx_binning%i_bin%i.png",modifier.Data(),binning,i+1));
     
     // draw histograms with "raw" landau and gauss for convolution
     TF1 * f_landau_raw = new TF1("f_landau_raw","landau",low_conv,high_conv);
@@ -396,8 +422,8 @@ void Calculate_elifetime_langaufun()
     f_gauss_raw->SetLineColor(kMagenta);
     f_gauss_raw->Draw("same");
 
-    c1->SaveAs(Form("img/elifetime/charge/raw/dQdx_binning%i_bin%i_plusraw.pdf",binning,i+1));
-    c1->SaveAs(Form("img/elifetime/charge/raw/dQdx_binning%i_bin%i_plusraw.png",binning,i+1));
+    c1->SaveAs(Form("img/elifetime/%s/charge/raw/dQdx_binning%i_bin%i_plusraw.pdf",modifier.Data(),binning,i+1));
+    c1->SaveAs(Form("img/elifetime/%s/charge/raw/dQdx_binning%i_bin%i_plusraw.png",modifier.Data(),binning,i+1));
     
     std::cout << "MPV4: " << lpg_mpv << std::endl;
     if ( lpg_mpv  > 10000 ) continue;
@@ -417,12 +443,15 @@ void Calculate_elifetime_langaufun()
   TLegend *myleg2 = new TLegend(0.5,0.7,0.9,0.95);
   double bin_end =  bin_width_t*nbins/2;
   std::cout << "bin end: " << bin_end << std::endl;
-    
-  h_elifetime_tpc0->SetMinimum(1200);
-  h_elifetime_tpc0->SetMaximum(1500);
 
-  h_elifetime_tpc0->SetMinimum(1400);
-  h_elifetime_tpc0->SetMaximum(1700);
+  double min_elifetime_histo = std::min(h_elifetime_tpc0->GetMinimum(),h_elifetime_tpc1->GetMinimum());
+  double max_elifetime_histo = std::max(h_elifetime_tpc0->GetMaximum(),h_elifetime_tpc1->GetMaximum());
+    
+  h_elifetime_tpc0->SetMinimum(std::max(min_elifetime_histo-0.02*min_elifetime_histo,0.0));
+  h_elifetime_tpc0->SetMaximum(max_elifetime_histo+0.1*max_elifetime_histo);
+
+  //h_elifetime_tpc0->SetMinimum(1400);
+  //h_elifetime_tpc0->SetMaximum(1700);
   
   //h_elifetime_tpc0->SetMinimum(500);
   //h_elifetime_tpc0->SetMaximum(2000);
@@ -434,7 +463,8 @@ void Calculate_elifetime_langaufun()
   e0_default->SetLineColor(kOrange);
   e0->SetParameters(p_e0);
   //e0->FixParameter(1,td);
-  h_elifetime_tpc0->Fit(e0,"L N","",0.0,bin_end);
+  //h_elifetime_tpc0->Fit(e0,"L N","",0.0,bin_end);
+  h_elifetime_tpc0->Fit(e0,"L N","",0.0,1.0);
   e0->SetLineColor(kBlue);
   e0->SetLineStyle(2);
   e0->SetLineWidth(2);
@@ -443,9 +473,9 @@ void Calculate_elifetime_langaufun()
   //e0_default->Draw("same");
   std::cout << e0->GetParameter(0) << " " << e0->GetParameter(1) << std::endl;
   
-  c1->SaveAs("img/elifetime/elifetime_tpc0.pdf");
-  c1->SaveAs("img/elifetime/elifetime_tpc0.png");
-  h_elifetime_tpc1->SetMinimum(1100);
+  c1->SaveAs(Form("img/elifetime/%s/elifetime_tpc0.pdf",modifier.Data()));
+  c1->SaveAs(Form("img/elifetime/%s/elifetime_tpc0.png",modifier.Data()));
+  //h_elifetime_tpc1->SetMinimum(1100);
   h_elifetime_tpc1->SetLineColor(kRed);
   h_elifetime_tpc1->Draw("same");
   TF1 * e1 = new TF1("e1","[0]*exp(-x/[1])",0.0,1.3);
@@ -455,7 +485,8 @@ void Calculate_elifetime_langaufun()
   e1_default->SetLineColor(kOrange);
   e1->SetParameters(p_e1);
   //e1->FixParameter(1,td);
-  h_elifetime_tpc1->Fit(e1,"L N","",0.0,bin_end);
+  //h_elifetime_tpc1->Fit(e1,"L N","",0.0,bin_end);
+  h_elifetime_tpc1->Fit(e1,"L N","",0.0,1.0);
   e1->SetLineColor(kRed);
   e1->SetLineStyle(2);
   e1->SetLineWidth(2);
@@ -475,7 +506,7 @@ void Calculate_elifetime_langaufun()
   if ( drift_vel != 160.0 ) {
     l_fudge->DrawLatexNDC(0.2,0.3,Form("Fudged data: drift vel. = %.2f cm/#mu s",drift_vel/1000.));
   }
-  c1->SaveAs("img/elifetime/elifetime_tpc1.pdf");
-  c1->SaveAs("img/elifetime/elifetime_tpc1.png");
+  c1->SaveAs(Form("img/elifetime/%s/elifetime_tpc1.pdf",modifier.Data()));
+  c1->SaveAs(Form("img/elifetime/%s/elifetime_tpc1.png",modifier.Data()));
   
 }
