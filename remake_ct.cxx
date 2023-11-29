@@ -50,7 +50,7 @@ void remake_ct(TString modifier = "")
   // modify the angles of the muontracks and make angle range -90 to
   // 90, with z2>z1
   bool modify_angles = true;
-  bool remake_ct = false; // remake crt tracks from crt hits
+  bool remake_ct = true; // remake crt tracks from crt hits
 
   // output file for corrected muon tracks
   if ( modifier != "" ) {
@@ -564,6 +564,9 @@ void remake_ct(TString modifier = "")
   if ( modifier[0] == '_' ) {
     modifier.Remove(0,1); // remove 1 character, starting from char 0
   }
+  if ( modifier == "" ) {
+    modifier = "default";
+  }
   // mkdir ( name, recursive)
   gSystem->mkdir(Form("img/ct_remake/%s",modifier.Data()),true);
   
@@ -573,10 +576,10 @@ void remake_ct(TString modifier = "")
   c1->SaveAs(Form("img/ct_remake/%s/ud_nct.png",modifier.Data()));
   c1->SaveAs(Form("img/ct_remake/%s/ud_nct.pdf",modifier.Data()));
   delete c1;
+
+  TStyle *ts = gROOT->GetStyle("uboone_sty_colz");
+  if ( ts != nullptr ) ts->cd();
   
-  gROOT->GetStyle("uboone_sty_colz");
-  uboone_sty_colz->cd();
-  //uboone_sty_colz->SetPadRightMargin(0.2);
   auto *c2 = new TCanvas();
   // 2d histos
   gStyle->SetOptStat(1);

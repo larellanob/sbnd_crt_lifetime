@@ -395,8 +395,9 @@ void Calculate_elifetime(TString modifier = "")
     }
     
     double lpg_mpv = f_langaufun->GetParameter(1);
+    double error_lpg_mpv = f_langaufun->GetParError(1);
+    std::cout << "MPV AND ERROR: " << lpg_mpv << " " << error_lpg_mpv << std::endl;
     //double lpg_mpv = minx;
-    std::cout << "MPV1: " << lpg_mpv << std::endl;
     
     c1->SaveAs(Form("img/elifetime/%s/charge/dQdx_binning%i_bin%i.pdf",modifier.Data(),binning,i+1));
     c1->SaveAs(Form("img/elifetime/%s/charge/dQdx_binning%i_bin%i.png",modifier.Data(),binning,i+1));
@@ -408,7 +409,6 @@ void Calculate_elifetime(TString modifier = "")
       f_langaufun->GetParameter(1),
       f_langaufun->GetParameter(0)
     };
-    std::cout << "MPV2: " << lpg_mpv << std::endl;
     f_landau_raw->SetParameters(p_landau_raw);
     f_landau_raw->Draw("same");
     TF1 * f_gauss_raw = new TF1("f_gauss_raw","gaus",0.0,low_conv);
@@ -417,7 +417,6 @@ void Calculate_elifetime(TString modifier = "")
       0.0,
       f_langaufun->GetParameter(3)
     };
-    std::cout << "MPV3: " << lpg_mpv << std::endl;
     f_gauss_raw->SetParameters(p_gauss_raw);
     f_gauss_raw->SetLineColor(kMagenta);
     f_gauss_raw->Draw("same");
@@ -425,16 +424,16 @@ void Calculate_elifetime(TString modifier = "")
     c1->SaveAs(Form("img/elifetime/%s/charge/raw/dQdx_binning%i_bin%i_plusraw.pdf",modifier.Data(),binning,i+1));
     c1->SaveAs(Form("img/elifetime/%s/charge/raw/dQdx_binning%i_bin%i_plusraw.png",modifier.Data(),binning,i+1));
     
-    std::cout << "MPV4: " << lpg_mpv << std::endl;
     if ( lpg_mpv  > 10000 ) continue;
     if ( tpc == 0 ) {
       drift_time = i*bin_width_t;
       h_elifetime_tpc0->SetBinContent(i+1,lpg_mpv);
+      h_elifetime_tpc0->SetBinError(i+1,error_lpg_mpv);
     }
     if ( tpc == 1 ) {
       drift_time = (nbins*bin_width_t)-(nbins-i)*bin_width_t;
-      std::cout << drift_time << std::endl;
       h_elifetime_tpc1->SetBinContent(16-(i-14),lpg_mpv);
+      h_elifetime_tpc1->SetBinError(16-(i-14),error_lpg_mpv);
     }
 
   }
@@ -455,7 +454,11 @@ void Calculate_elifetime(TString modifier = "")
   
   //h_elifetime_tpc0->SetMinimum(500);
   //h_elifetime_tpc0->SetMaximum(2000);
-  h_elifetime_tpc0->Draw();
+  h_elifetime_tpc0->Draw("E1");
+  TH1 * h_elifetime_tpc0_err = (TH1F*) h_elifetime_tpc0->Clone();
+  h_elifetime_tpc0_err->SetFillColor(kBlue);
+  h_elifetime_tpc0_err->SetFillStyle(3005);
+  //h_elifetime_tpc0_err->Draw("L E2 same");
   TF1 * e0 = new TF1("e0","[0]*exp(-x/[1])",0.0,1.3);
   double p_e0[2] = { 1350, 10 };
   TF1 * e0_default = new TF1("e0_default","[0]*exp(-x/[1])",0.0,1.3);
@@ -464,7 +467,7 @@ void Calculate_elifetime(TString modifier = "")
   e0->SetParameters(p_e0);
   //e0->FixParameter(1,td);
   //h_elifetime_tpc0->Fit(e0,"L N","",0.0,bin_end);
-  h_elifetime_tpc0->Fit(e0,"L N","",0.0,1.0);
+  h_elifetime_tpc0->Fit(e0,"L N Q","",0.0,1.0);
   e0->SetLineColor(kBlue);
   e0->SetLineStyle(2);
   e0->SetLineWidth(2);
@@ -477,7 +480,7 @@ void Calculate_elifetime(TString modifier = "")
   c1->SaveAs(Form("img/elifetime/%s/elifetime_tpc0.png",modifier.Data()));
   //h_elifetime_tpc1->SetMinimum(1100);
   h_elifetime_tpc1->SetLineColor(kRed);
-  h_elifetime_tpc1->Draw("same");
+  h_elifetime_tpc1->Draw("same E1");
   TF1 * e1 = new TF1("e1","[0]*exp(-x/[1])",0.0,1.3);
   double p_e1[2] = { 1350, 10 };
   TF1 * e1_default = new TF1("e1_default","[0]*exp(-x/[1])",0.0,1.3);
@@ -486,15 +489,15 @@ void Calculate_elifetime(TString modifier = "")
   e1->SetParameters(p_e1);
   //e1->FixParameter(1,td);
   //h_elifetime_tpc1->Fit(e1,"L N","",0.0,bin_end);
-  h_elifetime_tpc1->Fit(e1,"L N","",0.0,1.0);
+  h_elifetime_tpc1->Fit(e1,"L N Q","",0.0,1.0);
   e1->SetLineColor(kRed);
   e1->SetLineStyle(2);
   e1->SetLineWidth(2);
   e1->Draw("same");
   myleg2->AddEntry(h_elifetime_tpc0,"TPC 0");
-  myleg2->AddEntry(e0,Form("Fit TPC 0 (#tau_{0} = %.2f ms)",e0->GetParameter(1)));
+  myleg2->AddEntry(e0,Form("Fit TPC 0 (#tau_{0} = %.2f #pm %.2f ms)",e0->GetParameter(1),e0->GetParError(1)));
   myleg2->AddEntry(h_elifetime_tpc1,"TPC 1");
-  myleg2->AddEntry(e1,Form("Fit TPC 1 (#tau_{1} = %.2f ms)",e1->GetParameter(1)));
+  myleg2->AddEntry(e1,Form("Fit TPC 1 (#tau_{1} = %.2f #pm %.2f ms)",e1->GetParameter(1),e1->GetParError(1)));
   myleg2->Draw("same");
 
   TLatex * l_expo = new TLatex();
