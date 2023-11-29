@@ -50,7 +50,7 @@ void remake_ct(TString modifier = "")
   // modify the angles of the muontracks and make angle range -90 to
   // 90, with z2>z1
   bool modify_angles = true;
-  bool remake_ct = true; // remake crt tracks from crt hits
+  bool remake_ct = false; // remake crt tracks from crt hits
 
   // output file for corrected muon tracks
   if ( modifier != "" ) {

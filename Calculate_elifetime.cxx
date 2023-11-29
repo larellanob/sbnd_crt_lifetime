@@ -449,16 +449,7 @@ void Calculate_elifetime(TString modifier = "")
   h_elifetime_tpc0->SetMinimum(std::max(min_elifetime_histo-0.02*min_elifetime_histo,0.0));
   h_elifetime_tpc0->SetMaximum(max_elifetime_histo+0.1*max_elifetime_histo);
 
-  //h_elifetime_tpc0->SetMinimum(1400);
-  //h_elifetime_tpc0->SetMaximum(1700);
-  
-  //h_elifetime_tpc0->SetMinimum(500);
-  //h_elifetime_tpc0->SetMaximum(2000);
   h_elifetime_tpc0->Draw("E1");
-  TH1 * h_elifetime_tpc0_err = (TH1F*) h_elifetime_tpc0->Clone();
-  h_elifetime_tpc0_err->SetFillColor(kBlue);
-  h_elifetime_tpc0_err->SetFillStyle(3005);
-  //h_elifetime_tpc0_err->Draw("L E2 same");
   TF1 * e0 = new TF1("e0","[0]*exp(-x/[1])",0.0,1.3);
   double p_e0[2] = { 1350, 10 };
   TF1 * e0_default = new TF1("e0_default","[0]*exp(-x/[1])",0.0,1.3);
@@ -474,7 +465,6 @@ void Calculate_elifetime(TString modifier = "")
   e0->Draw("same");
   //e0->Draw();
   //e0_default->Draw("same");
-  std::cout << e0->GetParameter(0) << " " << e0->GetParameter(1) << std::endl;
   
   c1->SaveAs(Form("img/elifetime/%s/elifetime_tpc0.pdf",modifier.Data()));
   c1->SaveAs(Form("img/elifetime/%s/elifetime_tpc0.png",modifier.Data()));
